@@ -10,10 +10,10 @@ from dataset import Office, MultiDomainOffice
 from office_home.model.modules import DSR
 
 parser = argparse.ArgumentParser(description='VAE office home')
-parser.add_argument('--source_domain', type=str, default="Clipart", help='source domain name')
-parser.add_argument('--target_domain', type=str, default="Art", help='target domain name')
+parser.add_argument('--source_domain', type=str, default="Art", help='source domain name')
+parser.add_argument('--target_domain', type=str, default="Product", help='target domain name')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N', help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=1000, metavar='N', help='number of epochs to train (default: 10)')
+parser.add_argument('--epochs', type=int, default=500, metavar='N', help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False, help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N', help='how many batches to wait before logging training status')
@@ -24,8 +24,6 @@ torch.manual_seed(args.seed)
 
 device = torch.device("cuda" if args.cuda else "cpu")
 
-# kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-
 source_domain_dataset = Office(type='home', source=args.source_domain, target=args.source_domain)
 target_domain_dataset = Office(type='home', source=args.source_domain, target=args.target_domain)
 
@@ -33,14 +31,27 @@ source_loader = DataLoader(source_domain_dataset, batch_size=args.batch_size, sh
 target_loader = DataLoader(target_domain_dataset, batch_size=args.batch_size, shuffle=True)
 
 model = DSR().to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-5)
+
+A_level_parameters = []
+B_level_parameters = []
+C_level_parameters = []
+
+for name, param in model.named_parameters():
+    if 'label_classifier' in name and 'weight' in name:
+        A_level_parameters.append(param)
+    elif 'bias' in name and ('encoder' in name or 'decoder' in name or 'domain_classifier' in name):
+        B_level_parameters.append(param)
+    else:
+        C_level_parameters.append(param)
+
+optimizer = optim.Adam(model.parameters(), lr=1e-5)
 
 
 def auto_encoder_loss_function(recon_x, x, mu, logvar):
     BCE = F.mse_loss(recon_x, x.view(-1, 2048), reduction='mean')
     KLD = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
-    return BCE + KLD, BCE, KLD
+    return BCE + 150 * KLD, BCE, KLD
 
 
 def single_classifier_loss_function(pred, label):
@@ -83,14 +94,14 @@ def train(epoch):
         # y_d classifier loss
         y_d_classifier_result = torch.cat((source_y_d, target_y_d))
         domain_classifier_label = torch.cat((source_domain_label, target_domain_label))
-        y_d_classifier_loss = single_classifier_loss_function(y_d_classifier_result, domain_classifier_label)
+        y_d_classifier_loss = torch.mean(single_classifier_loss_function(y_d_classifier_result, domain_classifier_label))
 
         # y_y loss only source have y label
-        y_y_classifier_loss = single_classifier_loss_function(source_y_y, source_semantic_label)
+        y_y_classifier_loss = torch.mean(single_classifier_loss_function(source_y_y, source_semantic_label))
 
         # d_d loss
         d_d_classifier_result = torch.cat((source_d_d, target_d_d))
-        d_d_classifier_loss = single_classifier_loss_function(d_d_classifier_result, domain_classifier_label)
+        d_d_classifier_loss = torch.mean(single_classifier_loss_function(d_d_classifier_result, domain_classifier_label))
 
         # d_y loss, but have no label
         source_d_y_pred = torch.softmax(source_d_y, dim=1)
@@ -103,21 +114,45 @@ def train(epoch):
 
         total_loss = vae_loss + (y_d_classifier_loss + y_y_classifier_loss + d_d_classifier_loss + d_y_entropy_loss)
 
+        a_norm = []
+        b_norm = []
+        c_norm = []
+        for param in A_level_parameters:
+            a_norm.append(torch.norm(param))
+        a_norm = 5e-4 * torch.mean(torch.stack(a_norm))
+
+        for param in B_level_parameters:
+            b_norm.append(torch.norm(param))
+        b_norm = 5e-5 * torch.mean(torch.stack(b_norm))
+
+        for param in C_level_parameters:
+            c_norm.append(torch.norm(param))
+        c_norm = 5e-3 * torch.mean(torch.stack(c_norm))
+
+        total_loss += a_norm + b_norm + c_norm
+
         total_loss.backward()
+        # total_loss.backward(torch.tensor(4.).to(device))
+
+        no_weight_parameter = B_level_parameters + C_level_parameters
+        for param in no_weight_parameter:
+            param.grad = param.grad * 4.0
+
+        torch.nn.utils.clip_grad_norm_(A_level_parameters, 0.15)
 
         optimizer.step()
 
-        print(f'Epoch: {epoch} batch_idx {batch_idx} '
-              f'loss: {total_loss.item():.4f}, '
-              f'vae loss:{vae_loss.item():.4f}, '
-              f'source bce:{source_bce.item():.4f}, '
-              f'source kld:{source_kld.item():.4f}, '
-              f'target bce:{target_bce.item():.4f}, '
-              f'target kld:{target_kld.item():.4f}, '
-              f'y_d:{y_d_classifier_loss.item():.4f}, '
-              f'y_y:{y_y_classifier_loss.item():.4f}, '
-              f'd_d:{d_d_classifier_loss.item():.4f}, '
-              f'd_y:{d_y_entropy_loss.item():.4f} ')
+        # print(f'Epoch: {epoch} batch_idx {batch_idx} '
+        #       f'loss: {total_loss.item():.4f}, '
+        #       f'vae loss:{vae_loss.item():.4f}, '
+        #       f'source bce:{source_bce.item():.4f}, '
+        #       f'source kld:{source_kld.item():.4f}, '
+        #       f'target bce:{target_bce.item():.4f}, '
+        #       f'target kld:{target_kld.item():.4f}, '
+        #       f'y_d:{y_d_classifier_loss.item():.4f}, '
+        #       f'y_y:{y_y_classifier_loss.item():.4f}, '
+        #       f'd_d:{d_d_classifier_loss.item():.4f}, '
+        #       f'd_y:{d_y_entropy_loss.item():.4f} ')
 
 
 def test(epoch):
@@ -137,7 +172,7 @@ def test(epoch):
             correct += (predicted_label == label).sum().item()
 
     test_loss /= len(target_loader.dataset)
-    print('epoch {} Test set loss: {:.4f}, Accuracy: {:.4f} %%'.format(epoch, test_loss, (100 * correct / total)))
+    print('epoch {} Test set loss: {:.4f}, Accuracy: {:.4f} %'.format(epoch, test_loss, (100 * correct / total)))
     return 100 * correct / total
 
 
@@ -147,4 +182,6 @@ if __name__ == "__main__":
         train(epoch)
         acc = test(epoch)
         best_acc = max(best_acc, acc)
+        if epoch % 100 == 0:
+            print(best_acc)
     print(best_acc)
