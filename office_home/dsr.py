@@ -26,7 +26,7 @@ torch.manual_seed(args.seed)
 
 device = torch.device("cuda" if args.cuda else "cpu")
 
-kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+# kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
 source_domain_dataset = Office(type='home', source=args.source_domain, target=args.source_domain)
 target_domain_dataset = Office(type='home', source=args.source_domain, target=args.target_domain)
@@ -35,7 +35,7 @@ source_loader = DataLoader(source_domain_dataset, batch_size=args.batch_size, sh
 target_loader = DataLoader(target_domain_dataset, batch_size=args.batch_size, shuffle=True)
 
 model = DSR().to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-3)
 
 
 def auto_encoder_loss_function(recon_x, x, mu, logvar):
@@ -65,7 +65,7 @@ def train(epoch):
 
         target_data = target_data.to(device)
         target_semantic_label = target_semantic_label.to(device)
-        target_domain_label = torch.zeros_like(target_semantic_label).to(device)
+        target_domain_label = torch.ones_like(target_semantic_label).to(device)
 
         optimizer.zero_grad()
 

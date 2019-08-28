@@ -72,7 +72,7 @@ class LabelGAN(nn.Module):
         self.domain_classifier = nn.Sequential(
             nn.Linear(2000, 400),
             nn.ReLU(inplace=True),
-            nn.Dropout(),
+            nn.Dropout(0.9),
             nn.BatchNorm1d(400),
             nn.Linear(400, 2),
         )
