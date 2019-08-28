@@ -6,8 +6,6 @@ from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-import numpy as np
-
 from dataset import Office, MultiDomainOffice
 from office_home.model.modules import DSR
 
@@ -35,12 +33,12 @@ source_loader = DataLoader(source_domain_dataset, batch_size=args.batch_size, sh
 target_loader = DataLoader(target_domain_dataset, batch_size=args.batch_size, shuffle=True)
 
 model = DSR().to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-5)
 
 
 def auto_encoder_loss_function(recon_x, x, mu, logvar):
-    BCE = F.mse_loss(recon_x, x.view(-1, 2048), reduction='sum')
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    BCE = F.mse_loss(recon_x, x.view(-1, 2048), reduction='mean')
+    KLD = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
     return BCE + KLD, BCE, KLD
 
@@ -98,8 +96,8 @@ def train(epoch):
         source_d_y_pred = torch.softmax(source_d_y, dim=1)
         target_d_y_pred = torch.softmax(target_d_y, dim=1)
 
-        source_entropy = 5 + torch.mean(torch.sum(torch.log(source_d_y_pred) * source_d_y_pred, dim=1), dim=0)
-        target_entropy = 5 + torch.mean(torch.sum(torch.log(target_d_y_pred) * target_d_y_pred, dim=1), dim=0)
+        source_entropy = 2 + torch.mean(torch.sum(torch.log(source_d_y_pred) * source_d_y_pred, dim=1), dim=0)
+        target_entropy = 2 + torch.mean(torch.sum(torch.log(target_d_y_pred) * target_d_y_pred, dim=1), dim=0)
 
         d_y_entropy_loss = (source_entropy + target_entropy) / 2
 
