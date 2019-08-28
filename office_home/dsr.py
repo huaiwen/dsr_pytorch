@@ -42,7 +42,7 @@ def auto_encoder_loss_function(recon_x, x, mu, logvar):
     BCE = F.mse_loss(recon_x, x.view(-1, 2048), reduction='sum')
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-    return BCE + 140 * KLD
+    return BCE + KLD, BCE, KLD
 
 
 def single_classifier_loss_function(pred, label):
@@ -71,11 +71,11 @@ def train(epoch):
 
         # for source auto encoder loss
         source_recon, source_z, source_mu, source_logvar, source_gan = model(source_data)
-        source_auto_encoder_loss = auto_encoder_loss_function(source_recon, source_data, source_mu, source_logvar)
+        source_auto_encoder_loss, source_bce, source_kld = auto_encoder_loss_function(source_recon, source_data, source_mu, source_logvar)
 
         # for target auto encoder loss
         target_recon, target_z, target_mu, target_logvar, target_gan = model(target_data)
-        target_auto_encoder_loss = auto_encoder_loss_function(target_recon, target_data, target_mu, target_logvar)
+        target_auto_encoder_loss, target_bce, target_kld = auto_encoder_loss_function(target_recon, target_data, target_mu, target_logvar)
 
         vae_loss = (source_auto_encoder_loss + target_auto_encoder_loss) / 2
 
@@ -107,11 +107,19 @@ def train(epoch):
 
         total_loss.backward()
 
-        train_loss += total_loss.item()
-
         optimizer.step()
 
-        # print('Epoch: {} batch_idx {} loss: {:.4f}'.format(epoch, batch_idx, train_loss))
+        print(f'Epoch: {epoch} batch_idx {batch_idx} '
+              f'loss: {total_loss.item():.4f}, '
+              f'vae loss:{vae_loss.item():.4f}, '
+              f'source bce:{source_bce.item():.4f}, '
+              f'source kld:{source_kld.item():.4f}, '
+              f'target bce:{target_bce.item():.4f}, '
+              f'target kld:{target_kld.item():.4f}, '
+              f'y_d:{y_d_classifier_loss.item():.4f}, '
+              f'y_y:{y_y_classifier_loss.item():.4f}, '
+              f'd_d:{d_d_classifier_loss.item():.4f}, '
+              f'd_y:{d_y_entropy_loss.item():.4f} ')
 
 
 def test(epoch):
