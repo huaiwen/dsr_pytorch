@@ -140,9 +140,9 @@ class DSR(nn.Module):
 
         #### get z
         z_y = self.reparameterize(mu_y, logvar_y)
-        z_d = self.reparameterize(mu_d, logvar_y)
+        z_d = self.reparameterize(mu_d, logvar_d)
 
-        z = torch.cat((z_d, z_y), dim=1)
+        z = torch.cat((z_y, z_d), dim=1)
 
         z_y_d, z_y_y = self.label_gan(z_y)
         z_d_d, z_d_y = self.domain_gan(z_d)
