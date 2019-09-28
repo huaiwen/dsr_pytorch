@@ -154,7 +154,11 @@ class DSR(nn.Module):
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
-        return mu + eps * std
+
+        if self.training:
+            return mu + eps * std
+        else:
+            return mu
 
     def predict(self, x):
         # 预测的时候，是直接encode x之后，然后送到label classifier里，然后分类
